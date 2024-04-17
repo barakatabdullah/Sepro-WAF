@@ -2,42 +2,29 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"net/http"
+
+	"github.com/corazawaf/coraza/v3"
 )
 
-func formHandler(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		fmt.Fprintf(w, "ParseForm() err: %v", err)
-		return
-	}
-
-	fmt.Fprintf(w, "POST request successful")
-	name := r.FormValue("name")
-	address := r.FormValue("address")
-	fmt.Fprintf(w, "Name = %s\n", name)
-	fmt.Fprintf(w, "Address = %s\n", address)
-}
-
-func helloHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/hello" {
-		http.Error(w, "404 not found", http.StatusNotFound)
-		return
-	}
-	if r.Method != "GET" {
-		http.Error(w, "method is not supported", http.StatusNotFound)
-		return
-	}
-	fmt.Fprintf(w, "hello")
-}
-
 func main() {
-	fileServer := http.FileServer(http.Dir("./static"))
-	http.Handle("/", fileServer)
-	http.HandleFunc("/form", formHandler)
-	http.HandleFunc("/hello", helloHandler)
-	fmt.Printf("Starting server at port 8080\n")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatal(err)
+	// First we initialize our waf and our seclang parser
+	waf, err := coraza.NewWAF(coraza.NewWAFConfig().
+		WithDirectives(`SecRule REMOTE_ADDR "@rx .*" "id:1,phase:1,deny,status:403"`))
+	// Now we parse our rules
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// Then we create a transaction and assign some variables
+	tx := waf.NewTransaction()
+	defer func() {
+		tx.ProcessLogging()
+		tx.Close()
+	}()
+	tx.ProcessConnection("127.0.0.1", 8080, "127.0.0.1", 12345)
+
+	// Finally we process the request headers phase, which may return an interruption
+	if it := tx.ProcessRequestHeaders(); it != nil {
+		fmt.Printf("Transaction was interrupted with status %d\n", it.Status)
 	}
 }
