@@ -1,4 +1,4 @@
-module github.com/snacomds/Sepro-WAF
+module snacomds/SeproWAF
 
 go 1.22.0
 

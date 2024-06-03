@@ -1,30 +1,48 @@
 package main
 
 import (
-	"fmt"
+	"net/http"
+	"snacomds/SeproWAF/initializers"
 
-	"github.com/corazawaf/coraza/v3"
+	"fmt"
+	"log"
+
+	txhttp "github.com/corazawaf/coraza/v3/http"
+
+	"strings"
+
+	"os"
 )
 
+func exampleHandler(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	resBody := "Hello world, transaction not disrupted."
+
+	if body := os.Getenv("RESPONSE_BODY"); body != "" {
+		resBody = body
+	}
+
+	if h := os.Getenv("RESPONSE_HEADERS"); h != "" {
+		key, val, _ := strings.Cut(h, ":")
+		w.Header().Set(key, val)
+	}
+
+	// The server generates the response
+	w.Write([]byte(resBody))
+}
+
 func main() {
-	// First we initialize our waf and our seclang parser
-	waf, err := coraza.NewWAF(coraza.NewWAFConfig().
-		WithDirectives(`SecRule REMOTE_ADDR "@rx .*" "id:1,phase:1,deny,status:403"`))
-	// Now we parse our rules
+
+	waf, err := initializers.CreateWaf()
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	// Then we create a transaction and assign some variables
 	tx := waf.NewTransaction()
-	defer func() {
-		tx.ProcessLogging()
-		tx.Close()
-	}()
-	tx.ProcessConnection("127.0.0.1", 8080, "127.0.0.1", 12345)
+	tx.ProcessConnection("127.0.0.1", 8066, "127.0.0.1", 8000)
+	http.Handle("/", txhttp.WrapHandler(waf, http.HandlerFunc(exampleHandler)))
+	fmt.Println("Server is running. Listening port: 8066")
 
-	// Finally we process the request headers phase, which may return an interruption
-	if it := tx.ProcessRequestHeaders(); it != nil {
-		fmt.Printf("Transaction was interrupted with status %d\n", it.Status)
-	}
+	log.Fatal(http.ListenAndServe(":8066", nil))
+
 }
