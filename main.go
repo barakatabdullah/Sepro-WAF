@@ -1,48 +1,43 @@
 package main
 
 import (
-	"net/http"
-	"snacomds/SeproWAF/initializers"
-
 	"fmt"
+	"io"
 	"log"
-
-	txhttp "github.com/corazawaf/coraza/v3/http"
-
-	"strings"
-
-	"os"
+	"net/http"
+	"net/url"
+	"time"
 )
 
-func exampleHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	resBody := "Hello world, transaction not disrupted."
-
-	if body := os.Getenv("RESPONSE_BODY"); body != "" {
-		resBody = body
-	}
-
-	if h := os.Getenv("RESPONSE_HEADERS"); h != "" {
-		key, val, _ := strings.Cut(h, ":")
-		w.Header().Set(key, val)
-	}
-
-	// The server generates the response
-	w.Write([]byte(resBody))
-}
-
 func main() {
-
-	waf, err := initializers.CreateWaf()
+	// define origin server URL
+	originServerURL, err := url.Parse("http://127.0.0.1:8000")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal("invalid origin server URL")
 	}
 
-	tx := waf.NewTransaction()
-	tx.ProcessConnection("127.0.0.1", 8066, "127.0.0.1", 8000)
-	http.Handle("/", txhttp.WrapHandler(waf, http.HandlerFunc(exampleHandler)))
-	fmt.Println("Server is running. Listening port: 8066")
+	reverseProxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		fmt.Printf("[reverse proxy server] received request at: %s\n", time.Now())
 
-	log.Fatal(http.ListenAndServe(":8066", nil))
+		// set req Host, URL and Request URI to forward a request to the origin server
+		req.Host = originServerURL.Host
+		req.URL.Host = originServerURL.Host
+		req.URL.Scheme = originServerURL.Scheme
+		req.RequestURI = ""
+
+		// save the response from the origin server
+		originServerResponse, err := http.DefaultClient.Do(req)
+		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprint(rw, err)
+			return
+		}
+
+		// return response to the client
+		rw.WriteHeader(http.StatusOK)
+		io.Copy(rw, originServerResponse.Body)
+	})
+
+	log.Fatal(http.ListenAndServe(":8888", reverseProxy))
 
 }
