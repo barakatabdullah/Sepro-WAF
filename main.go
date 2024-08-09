@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/corazawaf/coraza/v3"
 	txhttp "github.com/corazawaf/coraza/v3/http"
 	"github.com/corazawaf/coraza/v3/types"
@@ -53,11 +55,27 @@ func logError(error types.MatchedRule) {
 
 func main() {
 
+	// Set the router as the default one shipped with Gin
+	router := gin.Default()
+
+	// Create a new WAF instance
 	waf := createWAF()
 
 	// Start the server
-	http.Handle("/", txhttp.WrapHandler(waf, http.HandlerFunc(handler)))
+
+	// Wrap the handler with the WAF with the default http package
+	// http.Handle("/", txhttp.WrapHandler(waf, http.HandlerFunc(handler)))
+
+	// Wrap the handler with the WAF with the gin package
+	router.Any("/*path", func(c *gin.Context) {
+		txhttp.WrapHandler(waf, http.HandlerFunc(handler)).ServeHTTP(c.Writer, c.Request)
+	})
+
+	// Start the server with the gin package
+	router.Run()
 
 	log.Println("Reverse proxy server started on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	// Start the server with the default http package
+	// log.Fatal(http.ListenAndServe(":8080", nil))
 }
